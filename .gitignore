@@ -51,6 +51,7 @@ __pycache__/
 /tests/**/build*/
 /tests/**/reference*/
 /tests/**/run-*/
+/tests/**/fixtures/
 /tests/**/fixtures/known-*/
 !/tests/**/CMakeLists.txt
 !/tests/display_profile/fixtures/manifest.json
