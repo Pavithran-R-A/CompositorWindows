@@ -80,7 +80,7 @@ QStringList nativeImportPaths(HWND owner,const QString& directory){
     // loop away from Qt prevents qwindows/comdlg re-entry from corrupting
     // Qt's object tree.
     static const wchar_t filter[]=
-        L"Images\0*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.heic;*.heif;*.psd;*.psb;*.svg;*.cr2;*.nef;*.arw;*.dng;*.raw\0"
+        L"Images\0*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.heic;*.heif;*.hif;*.psd;*.psb;*.svg;*.cr2;*.nef;*.arw;*.dng;*.raw;*.rw2\0"
         L"All files\0*.*\0";
     std::wstring buffer(32768,L'\0');
     const auto initial=directory.toStdWString();
