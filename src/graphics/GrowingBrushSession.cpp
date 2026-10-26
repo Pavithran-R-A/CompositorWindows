@@ -2,6 +2,7 @@
 // and EditorSession+Brush.swift at a19db9011282399785dc18efcfded904627bdcc2.
 // Copyright (c) 2026 Wonder Assembly LLC. MIT notice: upstream/LICENSE.
 #include "GrowingBrushSession.h"
+#include "LayerEffects.h"
 #include "RasterSampling.h"
 #include "SamplingSource.h"
 #include <algorithm>
@@ -128,7 +129,10 @@ std::shared_ptr<const LayerRenderPreview> GrowingBrushSnapshot::renderPreview()c
         if(state->mask&&state->original.mask->placement)return {};
         std::set<BrushTileKey> keys;for(const auto& [key,tile]:state->tiles){(void)tile;keys.insert(key);}if(prior)for(const auto& [key,tile]:prior->tiles){(void)tile;keys.insert(key);}
         std::vector<LayerRenderPreview::Damage> regions;
-        auto add=[&](double left,double top,double right,double bottom){LayerRenderPreview::Damage region{INFINITY,INFINITY,-INFINITY,-INFINITY};for(Point point:std::array<Point,4>{{{left-1,top-1},{right+1,top-1},{left-1,bottom+1},{right+1,bottom+1}}}){const auto mapped=state->base.fromUnit({point.x/state->baseWidth,point.y/state->baseHeight});region.left=std::min(region.left,mapped.x);region.top=std::min(region.top,mapped.y);region.right=std::max(region.right,mapped.x);region.bottom=std::max(region.bottom,mapped.y);}regions.push_back(region);};
+        // Effect output around changed content reaches effectPadding beyond it in
+        // document pixels; the one-source-pixel halo only covers interpolation.
+        const double effectPad=graphics::effectPadding(state->original.effects);
+        auto add=[&](double left,double top,double right,double bottom){LayerRenderPreview::Damage region{INFINITY,INFINITY,-INFINITY,-INFINITY};for(Point point:std::array<Point,4>{{{left-1,top-1},{right+1,top-1},{left-1,bottom+1},{right+1,bottom+1}}}){const auto mapped=state->base.fromUnit({point.x/state->baseWidth,point.y/state->baseHeight});region.left=std::min(region.left,mapped.x);region.top=std::min(region.top,mapped.y);region.right=std::max(region.right,mapped.x);region.bottom=std::max(region.bottom,mapped.y);}if(effectPad>0){region.left-=effectPad;region.top-=effectPad;region.right+=effectPad;region.bottom+=effectPad;}regions.push_back(region);};
         for(auto key:keys){auto current=state->tiles.find(key);const PaintedTile* next=current==state->tiles.end()?nullptr:&current->second;const PaintedTile* old=nullptr;if(prior){auto found=prior->tiles.find(key);if(found!=prior->tiles.end())old=&found->second;}if(next&&old&&next->pixels==old->pixels)continue;
             const auto origin=state->origin(key);int left=256,top=256,right=0,bottom=0;
             for(int y=0;y<256;++y)for(int x=0;x<256;++x){const int sx=int(origin.x)+x,sy=int(origin.y)+y;const auto before=old?old->pixels->pixels[size_t(y)*256+x]:state->basePixel(sx,sy),after=next?next->pixels->pixels[size_t(y)*256+x]:state->basePixel(sx,sy);if(before!=after){left=std::min(left,x);top=std::min(top,y);right=std::max(right,x+1);bottom=std::max(bottom,y+1);}}

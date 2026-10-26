@@ -15,4 +15,7 @@ struct EffectSample {
 // `shaped` is the layer silhouette with its mask and without layer opacity.
 // `coverage` already includes layer opacity and any folder or clipping factor.
 EffectSample shadeLayer(const Layer& layer,Point documentPoint,Pixel content,double coverage,const std::function<Pixel(Point)>& shaped);
+// How far, in document pixels, enabled effects can paint outside a layer's own
+// content: shadow distance plus blur reach, glow, and stroke width.
+double effectPadding(const LayerEffects& effects);
 }

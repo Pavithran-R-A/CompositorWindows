@@ -1,5 +1,6 @@
 #include "ui/ImportActions.h"
 #include "imaging/wic_codec.h"
+#include "imaging/psd/PsdDocument.h"
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -30,7 +31,16 @@ struct Case {QString id,path,expectation;bool tinyBudget{},cancelled{};};
 QJsonObject child(const QString& path,bool tinyBudget,bool cancelled){
     imaging::ImportOptions options;options.maxWorkingBytes=workingLimit;options.remainingPixels=tinyBudget?1:2000000;
     options.cancelled=[cancelled]{return cancelled;};
-    try{const auto decoded=ui::decodeImportImage(native(path),options);imaging::validate(decoded.image);
+    const auto extension=QFileInfo(path).suffix().toLower();
+    try{
+        // Photoshop import is dispatched separately from decodeImportImage (MainWindow::importPhotoshop),
+        // so hostile PSD containers are decoded through the production entry point here too.
+        if(extension=="psd"||extension=="psb"){
+            const auto imported=imaging::readPsd(native(path));
+            validateDocument(imported.document);
+            return {{"outcome","decoded"},{"layers",int(imported.document.layers.size())}};
+        }
+        const auto decoded=ui::decodeImportImage(native(path),options);imaging::validate(decoded.image);
         imaging::checkedBytes(decoded.image.width,decoded.image.height,4,options);
         return {{"outcome","decoded"},{"width",int(decoded.image.width)},{"height",int(decoded.image.height)},{"pixels_sha256",hash(QByteArray(reinterpret_cast<const char*>(decoded.image.pixels.data()),qsizetype(decoded.image.pixels.size())))}};
     }catch(const std::bad_alloc&){return {{"outcome","allocation_failure"}};}
@@ -77,8 +87,51 @@ int main(int argc,char** argv){
         add("raw-pixel-budget",QByteArray("II*\0\x08\0\0\0",8),"rejected",true,false,".cr2");
         add("raw-cancelled-before-open",QByteArray("II*\0\x08\0\0\0",8),"rejected",false,true,".nef");
         add("unsupported-gif",QByteArray::fromHex("47494638396101000100800000000000ffffff2c00000000010001000002024401003b"),"rejected");
-        add("oversized-heif-box",QByteArray::fromHex("ffffffff66747970686569630000000068656963"),"rejected");
+        add("oversized-heif-box",QByteArray::fromHex("ffffffff667479706865630000000068656963"),"rejected");
         add("random-header",QByteArray(1024,char(-1)),"rejected");
+        // Photoshop import is dispatched outside decodeImportImage, so its hostile containers get their own cases.
+        auto bigEndian16=[&](QByteArray& bytes,int offset,quint16 value){bytes[offset]=char(value>>8);bytes[offset+1]=char(value&0xff);};
+        auto set32=[&](QByteArray& bytes,int offset,quint32 value){for(int i=0;i<4;++i)bytes[offset+i]=char(value>>(24-8*i));};
+        auto append32=[&](QByteArray& bytes,quint32 value){const auto at=bytes.size();bytes.resize(at+4);set32(bytes,at,value);};
+        // A uniform 32x32 8-bit RGB PSD with no layers: header, empty color/resources, empty layer
+        // info, and a raw planar image section the merged-composite fallback can decode.
+        auto flatPsd=[&](){
+            QByteArray psd;psd.append("8BPS");psd.resize(26);
+            bigEndian16(psd,4,1);bigEndian16(psd,12,3); // version, channels; 6 reserved bytes stay zero
+            set32(psd,14,32);set32(psd,18,32);bigEndian16(psd,22,8);bigEndian16(psd,24,3);
+            append32(psd,0);append32(psd,0); // color mode data, image resources
+            append32(psd,4);append32(psd,0); // layer section: length four holding an empty layer-info length
+            append32(psd,quint32(2+3*32*32));bigEndian16(psd,psd.size(),0);
+            psd.append(32*32,char(64)).append(32*32,char(0)).append(32*32,char(-128));
+            return psd;
+        };
+        add("psd-valid-flat",flatPsd(),"decoded",false,false,".psd");
+        {
+            // A layer record whose extra data ends in an 8B64 block with a length that wraps the
+            // block walk back onto its own signature: the parser must resynchronize, not revisit.
+            QByteArray hostile=flatPsd();
+            QByteArray record;record.resize(16);set32(record,0,0);set32(record,4,0);set32(record,8,32);set32(record,12,32);
+            bigEndian16(record,16,0); // channel count zero: the layer itself cannot decode, which is fine
+            record.append("8BIM").append("norm");record.append(char(-1)).append(char(0)).append(char(0)).append(char(0));
+            append32(record,28); // extra data length
+            append32(record,0);append32(record,0); // mask size, blend ranges size
+            record.append(char(1)).append('x').append(char(0)).append(char(0)); // padded Pascal name
+            record.append("8B64").append("lspf");
+            for(int i=0;i<7;++i)record.append(char(-1));record.append(char(-16)); // length wraps to start-16
+            QByteArray info;info.resize(2);info[0]=char(0);info[1]=char(1);info.append(record);
+            QByteArray section;append32(section,quint32(info.size()));section.append(info);
+            append32(section,0);append32(section,0);
+            const int layerSectionAt=34;
+            set32(hostile,layerSectionAt,quint32(section.size()));
+            hostile.replace(layerSectionAt+4,section.size(),section);
+            add("psd-extra-data-wrap",hostile,"bounded",false,false,".psd");
+        }
+        {
+            // readPsd loads the whole file; above the shared 512 MiB package cap it must refuse
+            // before allocating instead of committing the file size.
+            QByteArray oversized=flatPsd();oversized.resize(513*1024*1024);
+            add("psd-oversized-file",oversized,"rejected",false,false,".psd");
+        }
         QJsonArray results;int failed=0,decoded=0,rejected=0;quint64 maximumWorking=0,maximumCommit=0;QElapsedTimer whole;whole.start();
         for(const auto& item:cases){
             QJsonObject result{{"id",item.id},{"path",item.path},{"input_sha256",hash(read(item.path))},{"expectation",item.expectation},{"tiny_pixel_budget",item.tinyBudget},{"cancelled_before_decode",item.cancelled}};

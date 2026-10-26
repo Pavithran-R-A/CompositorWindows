@@ -632,6 +632,12 @@ bool readMerged(Reader& in, int width, int height, int depth, int channels, Laye
 }
 PsdImport readPsd(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary); if (!file) throw std::runtime_error("Cannot open PSD");
+    // The parser loads the whole file; refuse inputs beyond the shared package-asset cap
+    // instead of committing an unbounded allocation from local data.
+    file.seekg(0, std::ios::end);
+    const auto end = file.tellg();
+    if (end < 0 || uint64_t(end) > 512ull * 1024 * 1024) throw std::runtime_error("PSD file exceeds the 512 MiB import limit");
+    file.seekg(0, std::ios::beg);
     std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), {}); return readPsd(bytes.data(), bytes.size());
 }
 PsdImport readPsd(const uint8_t* bytes, size_t size) {
@@ -708,8 +714,11 @@ PsdImport readPsd(const uint8_t* bytes, size_t size) {
                     else if (key == "SoCo" && record.solidFill.empty()) { auto stored = std::min(length, uint64_t(extraEnd > in.at ? extraEnd - in.at : 0)); record.solidFill.assign(in.data + in.at, in.data + in.at + size_t(stored)); }
                     else if (key == "vscg" || key == "vogk" || key == "vstk") { auto stored = std::min(length, uint64_t(extraEnd > in.at ? extraEnd - in.at : 0)); auto& dest = key == "vscg" ? record.fill : key == "vogk" ? record.geometry : record.strokeData; if (dest.empty()) dest.assign(in.data + in.at, in.data + in.at + size_t(stored)); }
                     else if ((key == "vmsk" || key == "vsms") && record.vectorPath.empty()) { auto stored = std::min(length, uint64_t(extraEnd > in.at ? extraEnd - in.at : 0)); record.vectorPath.assign(in.data + in.at, in.data + in.at + size_t(stored)); }
+                    // A hostile length can wrap the block walk back onto its own signature, so
+                    // resynchronize at the record end like the 16-bit layer scan above.
                     auto next = start + size_t(length + (length & 1));
-                    in.at = next > extraEnd ? extraEnd : next;
+                    if (next < start || next > extraEnd) { in.at = extraEnd; break; }
+                    in.at = next;
                 }
                 in.at = extraEnd; records.push_back(std::move(record));
             }

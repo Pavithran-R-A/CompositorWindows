@@ -1,5 +1,6 @@
 #include "Document.h"
 #include "graphics/Downsample.h"
+#include "graphics/LayerEffects.h"
 #include "graphics/SamplingSource.h"
 #include <algorithm>
 #include <cmath>
@@ -53,14 +54,7 @@ std::shared_ptr<const Raster> directRaster(const Document& doc){
     return {};
 }
 double effectPad(const LayerEffects& fx){
-    if(!fx.active())return 0;
-    double pad=0;auto add=[&](double value){pad=std::max(pad,value);};
-    if(fx.dropShadow.enabled)add(std::abs(fx.dropShadow.distance)+std::min(std::max(fx.dropShadow.size,0.),12.)+2);
-    if(fx.innerShadow.enabled)add(std::abs(fx.innerShadow.distance)+std::min(std::max(fx.innerShadow.size,0.),12.)+2);
-    if(fx.outerGlow.enabled)add(std::min(std::max(fx.outerGlow.size,0.),12.)+2);
-    if(fx.innerGlow.enabled)add(std::min(std::max(fx.innerGlow.size,0.),12.)+2);
-    if(fx.stroke.enabled)add(std::min(std::max(fx.stroke.size,0.),24.)+2);
-    return pad;
+    return graphics::effectPadding(fx);
 }
 std::optional<Bounds> layerPaintBounds(const Layer& layer,double units){
     if(!layer.raster||!layer.transform.valid())return {};
@@ -115,9 +109,14 @@ LayerDamage compareLayers(const Document* previous,const Document& doc,double un
             if(visualMetadata(before,after)){const bool children=before.visible!=after.visible||before.opacity!=after.opacity;addPainted(*previous,i,units,result.regions,children);addPainted(doc,i,units,result.regions,children);}
             continue;}
         const int sourceColumns=(after.raster->width+255)/256;
+        // Effect output around changed content reaches effectPadding beyond it; the
+        // one-source-pixel halo alone would leave stale shadow, glow, or stroke pixels.
+        const double pad=effectPad(after.effects);
         for(size_t tile=0;tile<after.raster->tiles.size();++tile)if(before.raster->tiles[tile]!=after.raster->tiles[tile]){
             int x=int(tile%sourceColumns)*256,y=int(tile/sourceColumns)*256;
-            result.regions.push_back(bounds(after.transform,double(x-1)/after.raster->width,double(y-1)/after.raster->height,258./after.raster->width,258./after.raster->height));
+            auto region=bounds(after.transform,double(x-1)/after.raster->width,double(y-1)/after.raster->height,258./after.raster->width,258./after.raster->height);
+            if(pad>0){region.left-=pad;region.top-=pad;region.right+=pad;region.bottom+=pad;}
+            result.regions.push_back(region);
         }
     }
     return result;

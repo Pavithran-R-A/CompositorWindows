@@ -23,6 +23,16 @@ Pixel colored(Pixel color,double alpha){double a=std::clamp(alpha,0.,1.);return 
 Pixel opaque(Pixel p){unsigned a=p.a;auto c=[&](unsigned v){return uint8_t(a?std::min(255u,(v*255+a/2)/a):0);};return{c(p.r),c(p.g),c(p.b),255};}
 Pixel restore(Pixel p,uint8_t alpha){auto c=[&](unsigned v){return uint8_t((v*alpha+127)/255);};return{c(p.r),c(p.g),c(p.b),alpha};}
 }
+double effectPadding(const LayerEffects& fx){
+    if(!fx.active())return 0;
+    double pad=0;auto add=[&](double value){pad=std::max(pad,value);};
+    if(fx.dropShadow.enabled)add(std::abs(fx.dropShadow.distance)+std::min(std::max(fx.dropShadow.size,0.),12.)+2);
+    if(fx.innerShadow.enabled)add(std::abs(fx.innerShadow.distance)+std::min(std::max(fx.innerShadow.size,0.),12.)+2);
+    if(fx.outerGlow.enabled)add(std::min(std::max(fx.outerGlow.size,0.),12.)+2);
+    if(fx.innerGlow.enabled)add(std::min(std::max(fx.innerGlow.size,0.),12.)+2);
+    if(fx.stroke.enabled)add(std::min(std::max(fx.stroke.size,0.),24.)+2);
+    return pad;
+}
 EffectSample shadeLayer(const Layer& layer,Point p,Pixel content,double coverage,const std::function<Pixel(Point)>& shaped){
     EffectSample out;out.content=content;if(!layer.effects.active())return out;
     if(!near(layer.transform,p,80)&&content.a==0)return out;
