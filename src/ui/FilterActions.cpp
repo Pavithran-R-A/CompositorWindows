@@ -127,7 +127,12 @@ public:
         const QRect frame=window_->frameGeometry();
         dialog_->setFixedWidth(440);
         const int decoration=std::max(0,dialog_->frameGeometry().height()-dialog_->height());
-        dialog_->setFixedHeight(std::max(1,frame.height()-decoration));
+        // The chrome reflow prepends a title row inside the frame; without
+        // reserving its height the fixed height clips the bottom controls.
+        int chromeTitle=0;
+        if(auto* title=dialog_->findChild<QWidget*>("dialogTitle",Qt::FindDirectChildrenOnly))
+            if(title->isVisibleTo(dialog_))chromeTitle=title->sizeHint().height();
+        dialog_->setFixedHeight(std::max(1,frame.height()-decoration-chromeTitle));
         const QRect docked=dialog_->frameGeometry();
         dialog_->move(dialog_->pos()+QPoint(frame.right()-docked.right(),frame.top()-docked.top()));
     }

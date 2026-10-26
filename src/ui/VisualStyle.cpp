@@ -10,6 +10,7 @@
 #include <QFontDatabase>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QProgressDialog>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
@@ -170,7 +171,10 @@ public:
         auto* widget=qobject_cast<QWidget*>(object);if(!widget)return false;
         if(event->type()==QEvent::Polish) {
             if(auto* picker=qobject_cast<QFileDialog*>(widget)){static FileIcons icons;picker->setOption(QFileDialog::DontUseNativeDialog);picker->setIconProvider(&icons);}
-            if(auto* dialog=qobject_cast<QDialog*>(widget);dialog&&dialog->isWindow()&&!dialog->property("studioChrome").toBool()) {
+            // QProgressDialog manages its own label, bar, and Cancel layout; re-parenting it
+            // here emptied the body and hid Cancel (the recorded Focus Stack failure), so the
+            // chrome handler keeps Qt's layout for every progress dialog.
+            if(auto* dialog=qobject_cast<QDialog*>(widget);dialog&&dialog->isWindow()&&!dialog->property("studioChrome").toBool()&&!qobject_cast<QProgressDialog*>(widget)) {
                 dialog->setProperty("studioChrome",true);
                 auto* content=new QWidget(dialog);content->setObjectName("dialogContent");if(dialog->layout())content->setLayout(dialog->layout());
                 auto* layout=new QVBoxLayout(dialog);layout->setContentsMargins(1,1,1,1);layout->setSpacing(0);
