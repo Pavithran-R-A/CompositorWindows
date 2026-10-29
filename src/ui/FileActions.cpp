@@ -587,10 +587,29 @@ bool confirmPhotoshopWarnings(QWidget* parent,const QString& file,const std::vec
 }
 }
 bool MainWindow::importPhotoshop(const QString& path){
+    // The decoder runs on a worker thread under an application-modal wait, so a
+    // large document keeps the window painting instead of hanging it. readPsd has
+    // no cancellation; the 512 MiB input cap bounds the wait.
+    if(psdImporting_)return false;
+    QScopedValueRollback<bool> guarding(psdImporting_,true);
+    struct Outcome { imaging::PsdImport imported; QString error; };
+    auto outcome=std::make_shared<Outcome>();
+    QProgressDialog progress("Importing Photoshop document…",QString(),0,0,this);
+    progress.setObjectName("psdImportProgress");progress.setWindowTitle("Import PSD");
+    progress.setWindowModality(Qt::ApplicationModal);
+    QFutureWatcher<void> watcher;QEventLoop loop;
+    QObject::connect(&watcher,&QFutureWatcher<void>::finished,&loop,&QEventLoop::quit);
+    watcher.setFuture(QtConcurrent::run([outcome,file=nativePath(path)]{
+        try{outcome->imported=imaging::readPsd(file);}
+        catch(const std::exception& error){outcome->error=QString::fromUtf8(error.what());}
+        catch(...){outcome->error="Unknown Photoshop import failure";}
+    }));
+    progress.show();loop.exec();
+    watcher.waitForFinished();
+    if(!outcome->error.isEmpty()){QMessageBox::critical(this,"Import PSD",outcome->error);return false;}
     try{
-        auto imported=imaging::readPsd(nativePath(path));
-        if(!imported.warnings.empty()&&!confirmPhotoshopWarnings(this,QFileInfo(path).fileName(),imported.warnings))return false;
-        auto& project=addProject(std::move(imported.document),QFileInfo(path).fileName(),false);
+        if(!outcome->imported.warnings.empty()&&!confirmPhotoshopWarnings(this,QFileInfo(path).fileName(),outcome->imported.warnings))return false;
+        auto& project=addProject(std::move(outcome->imported.document),QFileInfo(path).fileName(),false);
         if(project.document){project.active=project.document->layers.back().id;project.selected={project.active};}
         refresh();project.canvas->fit();
         return true;

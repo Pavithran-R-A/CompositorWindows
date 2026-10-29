@@ -83,7 +83,7 @@ public:
     using ReleaseFetcher=std::function<QByteArray(const std::function<bool()>& cancelled)>;
 private:
     bool warp_,refreshing_{};
-    bool managingProjectOpen_{},selectingProjectForOpen_{};
+    bool managingProjectOpen_{},selectingProjectForOpen_{},psdImporting_{};
     QTabWidget* tabs_{};
     QTreeWidget* layers_{};
     QComboBox* blend_{};
