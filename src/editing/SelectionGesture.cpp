@@ -24,7 +24,7 @@ void SelectionGesture::begin(Point point,LassoKind kind,SelectionMode mode,bool 
     if(box)point={std::round(point.x),std::round(point.y)};
     LassoDraft draft;draft.kind=kind;draft.mode=mode;if(box)draft.anchor=point;
     appendLassoPoint(draft.points,point);draft_=std::move(draft);
-    constrainArmed_=!shift;marqueeDragPoint_.reset();
+    constrainArmed_=!shift;marqueeDragPoint_.reset();marqueeRawPoint_.reset();
 }
 bool SelectionGesture::marquee()const{return draft_&&(draft_->kind==LassoKind::Rectangle||draft_->kind==LassoKind::Ellipse);}
 SelectionMode SelectionGesture::cursorMode(bool shift,bool option,SelectionMode choice)const{return draft_?draft_->mode:selectionMode(shift,option,choice);}
@@ -36,6 +36,11 @@ void SelectionGesture::move(Point point,bool shift){
     }else if(draft_->kind==LassoKind::Polygonal)moveCursor(point);
     else extend(point);
 }
+void SelectionGesture::move(Point snapped,Point raw,bool shift){
+    marqueeRawPoint_=finite(raw)?std::optional<Point>(raw):std::nullopt;
+    move(snapped,shift);
+    if(!marquee())marqueeRawPoint_.reset();
+}
 void SelectionGesture::moveCursor(std::optional<Point> point){if(draft_&&(!point||finite(*point)))draft_->cursor=point;}
 void SelectionGesture::modifiersChanged(bool shift){if(marquee()&&marqueeDragPoint_)move(*marqueeDragPoint_,shift);}
 PolygonPressResult SelectionGesture::polygonPress(Point point,double distance,int clicks){
@@ -46,11 +51,19 @@ PolygonPressResult SelectionGesture::polygonPress(Point point,double distance,in
 bool SelectionGesture::extend(Point point){return draft_&&appendLassoPoint(draft_->points,point);}
 void SelectionGesture::dragMarquee(Point point,bool square,bool fromCenter){
     if(!marquee()||!draft_->anchor||!finite(point))return;
-    const auto r=dragBox(*draft_->anchor,point,square,fromCenter);
+    auto r=dragBox(*draft_->anchor,point,square,fromCenter);
+    // Snapping can pull the release back onto the press line when the anchor sits
+    // on a snap line, collapsing a real drag to nothing; the raw pointer then
+    // describes the rectangle the user actually drew.
+    if(marqueeRawPoint_&&finite(*marqueeRawPoint_)&&(r.width<=0||r.height<=0)
+       &&(std::abs(marqueeRawPoint_->x-point.x)>0||std::abs(marqueeRawPoint_->y-point.y)>0)){
+        const auto raw=dragBox(*draft_->anchor,*marqueeRawPoint_,square,fromCenter);
+        if(raw.width>0&&raw.height>0)r=raw;
+    }
     draft_->points={{r.x,r.y},{r.x+r.width,r.y},{r.x+r.width,r.y+r.height},{r.x,r.y+r.height}};
 }
 void SelectionGesture::removeLast(){if(!draft_)return;draft_->points.pop_back();if(draft_->points.empty())cancel();}
-void SelectionGesture::cancel(){draft_.reset();marqueeDragPoint_.reset();constrainArmed_=false;}
+void SelectionGesture::cancel(){draft_.reset();marqueeDragPoint_.reset();marqueeRawPoint_.reset();constrainArmed_=false;}
 void SelectionGesture::interrupt(){if(draft_&&draft_->kind!=LassoKind::Polygonal)cancel();}
 SelectionOutline SelectionGesture::outline(bool aa)const{return draft_?draftOutline(*draft_,aa):SelectionOutline();}
 std::optional<SelectionGestureResult> SelectionGesture::finish(const std::optional<SelectionOutline>& current,int width,int height,bool aa){

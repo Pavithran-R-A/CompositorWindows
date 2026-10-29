@@ -30,6 +30,9 @@ public:
     // Drag events: freehand extends, polygon updates only its rubber endpoint,
     // marquee uses the fresh-Shift latch and always fromCenter=false.
     void move(Point, bool shift = false);
+    // Snapped dragging records the raw pointer so a marquee whose snapped box
+    // collapses to nothing can still honor a real drag (see dragMarquee).
+    void move(Point snapped, Point raw, bool shift = false);
     void moveCursor(std::optional<Point>);
     void modifiersChanged(bool shift);
     // Use VIEW-space distance from the mapped first point, in logical points.
@@ -51,6 +54,7 @@ public:
 private:
     std::optional<LassoDraft> draft_;
     std::optional<Point> marqueeDragPoint_;
+    std::optional<Point> marqueeRawPoint_;
     bool constrainArmed_{};
 };
 // Source dragSelection: Shift chooses the largest axis, choosing X on ties.

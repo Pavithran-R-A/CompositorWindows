@@ -124,6 +124,7 @@ bool MainWindow::updateSelection(Point point,Qt::KeyboardModifiers modifiers,boo
     if(!movingSelection_&&!selectionGesture_.active())return tool_==Tool::Marquee||tool_==Tool::Lasso||tool_==Tool::Polygon||tool_==Tool::Wand;
     auto* p=selectionOwner_;if(!p||p!=current()||!p->document){cancelSelectionGesture();return true;}
     selectionModifiers_=modifiers;
+    const Point rawPoint=point;
     if(movingSelection_){
         if(!finish){
             auto offset=editing::selectionMoveOffset(press_,point,modifiers.testFlag(Qt::ShiftModifier));
@@ -146,7 +147,7 @@ bool MainWindow::updateSelection(Point point,Qt::KeyboardModifiers modifiers,boo
     }
     if(finish){stopSelectionAutoscroll();if(selectionGesture_.draft()->kind!=editing::LassoKind::Polygonal)finishSelectionGesture();return true;}
     if(selectionGesture_.marquee())point=snapGesturePoint(point,modifiers);
-    selectionGesture_.move(point,modifiers.testFlag(Qt::ShiftModifier));
+    selectionGesture_.move(point,rawPoint,modifiers.testFlag(Qt::ShiftModifier));
     if(selectionGesture_.marquee())updateSelectionAutoscroll(p->canvas->viewMapping().toView(point));
     refreshSelectionGesture();return true;
 }
