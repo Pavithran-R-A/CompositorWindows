@@ -86,6 +86,30 @@ int main(int argc,char** argv){
         add("raw-random-header",QByteArray(1024,char(-1)),"rejected",false,false,".arw");
         add("raw-pixel-budget",QByteArray("II*\0\x08\0\0\0",8),"rejected",true,false,".cr2");
         add("raw-cancelled-before-open",QByteArray("II*\0\x08\0\0\0",8),"rejected",false,true,".nef");
+        QByteArray tif_buffer;
+        auto appendLe16=[&](quint16 value){tif_buffer.append(char(value>>8));tif_buffer.append(char(value&0xff));};
+        auto appendLe32=[&](quint32 value){for(int shift=24;shift>=0;shift-=8)tif_buffer.append(char(value>>shift));};
+        // CVE-2026-88387: a float- or double-typed NewSubfileType (tag 0x00fe) reaches
+        // int(getreal(type)); the conversion is out of range for huge values. The pinned
+        // LibRaw 0.22.3 carries the upstream-reverted state, so these prove the shipped
+        // binary rejects the file cleanly (bounded time, no crash) instead of crashing.
+        auto inlineNewSubfileType=[&](quint16 valueType,const QByteArray& lowBytes,const QByteArray& highBytes){
+            tif_buffer.clear();
+            tif_buffer.append("II");appendLe16(42);appendLe32(8);
+            appendLe16(1);        // one IFD entry
+            appendLe16(0x00fe);   // NewSubfileType
+            appendLe16(valueType);// attacker-chosen field type
+            appendLe32(1);        // count
+            tif_buffer.append(lowBytes);   // inline value bytes
+            tif_buffer.append(highBytes);  // next-IFD pointer bytes (extend DOUBLE values to 8)
+            return tif_buffer;
+        };
+        const QByteArray floatHuge=QByteArray::fromHex("7f000000");
+        const QByteArray doubleHuge=QByteArray::fromHex("ffffffffffffef7f");
+        const QByteArray doubleNaN=QByteArray::fromHex("000000000000f87f");
+        add("raw-tiff-float-newsubfile",inlineNewSubfileType(11,floatHuge.left(4),doubleNaN.left(0)),"rejected",false,false,".dng");
+        add("raw-tiff-double-newsubfile",inlineNewSubfileType(12,doubleHuge.left(4),doubleHuge.mid(4)),"rejected",false,false,".dng");
+        add("raw-tiff-double-newsubfile-nan",inlineNewSubfileType(12,doubleNaN.left(4),doubleNaN.mid(4)),"rejected",false,false,".dng");
         add("unsupported-gif",QByteArray::fromHex("47494638396101000100800000000000ffffff2c00000000010001000002024401003b"),"rejected");
         add("oversized-heif-box",QByteArray::fromHex("ffffffff667479706865630000000068656963"),"rejected");
         add("random-header",QByteArray(1024,char(-1)),"rejected");
