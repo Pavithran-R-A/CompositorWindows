@@ -91,26 +91,24 @@ int main(int argc,char** argv){
         auto appendLe32=[&](quint32 value){for(int shift=24;shift>=0;shift-=8)tif_buffer.append(char(value>>shift));};
         // CVE-2026-88387: a float- or double-typed NewSubfileType (tag 0x00fe) reaches
         // int(getreal(type)); the conversion is out of range for huge values. The pinned
-        // LibRaw 0.22.3 carries the upstream-reverted state, so these prove the shipped
-        // binary rejects the file cleanly (bounded time, no crash) instead of crashing.
-        auto inlineNewSubfileType=[&](quint16 valueType,const QByteArray& lowBytes,const QByteArray& highBytes){
-            tif_buffer.clear();
-            tif_buffer.append("II");appendLe16(42);appendLe32(8);
-            appendLe16(1);        // one IFD entry
-            appendLe16(0x00fe);   // NewSubfileType
-            appendLe16(valueType);// attacker-chosen field type
-            appendLe32(1);        // count
-            tif_buffer.append(lowBytes);   // inline value bytes
-            tif_buffer.append(highBytes);  // next-IFD pointer bytes (extend DOUBLE values to 8)
-            return tif_buffer;
+        // LibRaw 0.22.3 carries the upstream-reverted state, so these fixture files prove
+        // the shipped binary parses the tag and completes the decode without crashing or
+        // exhausting resources. The positive control proves the baseline TIFF structure is
+        // valid via the WIC path (.tif); the hostile variants go through LibRaw (.dng),
+        // which rejects generic TIFFs as unsupported camera formats but must do so
+        // cleanly (bounded time, no crash).
+        auto evidenceTiff=[&](const QString& name){
+            const auto path=std::filesystem::path(QString(root+"/evidence/imaging/"+name).toStdWString());
+            QFile file(QString::fromStdWString(path.wstring()));require(file.open(QIODevice::ReadOnly),("CVE fixture missing: "+name.toStdString()).c_str());
+            return file.readAll();
         };
-        const QByteArray floatHuge=QByteArray::fromHex("7f000000");
-        const QByteArray doubleHuge=QByteArray::fromHex("ffffffffffffef7f");
-        const QByteArray doubleNaN=QByteArray::fromHex("000000000000f87f");
-        add("raw-tiff-float-newsubfile",inlineNewSubfileType(11,floatHuge.left(4),doubleNaN.left(0)),"rejected",false,false,".dng");
-        add("raw-tiff-double-newsubfile",inlineNewSubfileType(12,doubleHuge.left(4),doubleHuge.mid(4)),"rejected",false,false,".dng");
-        add("raw-tiff-double-newsubfile-nan",inlineNewSubfileType(12,doubleNaN.left(4),doubleNaN.mid(4)),"rejected",false,false,".dng");
-        add("unsupported-gif",QByteArray::fromHex("47494638396101000100800000000000ffffff2c00000000010001000002024401003b"),"rejected");
+        add("tiff-positive-control-wic",evidenceTiff("lr-poscontrol.tif"),"decoded",false,false,".tif");
+        add("raw-tiff-positive-control-libraw",evidenceTiff("lr-poscontrol.tif"),"rejected",false,false,".dng");
+        add("raw-tiff-float-newsubfile",evidenceTiff("lr-float-huge.tif"),"bounded",false,false,".dng");
+        add("raw-tiff-double-newsubfile",evidenceTiff("lr-double-huge.tif"),"bounded",false,false,".dng");
+        add("raw-tiff-double-newsubfile-nan",evidenceTiff("lr-double-nan.tif"),"bounded",false,false,".dng");
+        add("raw-tiff-dng-float-newsubfile",evidenceTiff("lr-dng-float-huge.tif"),"bounded",false,false,".dng");
+add("unsupported-gif",QByteArray::fromHex("47494638396101000100800000000000ffffff2c00000000010001000002024401003b"),"rejected");
         add("oversized-heif-box",QByteArray::fromHex("ffffffff667479706865630000000068656963"),"rejected");
         add("random-header",QByteArray(1024,char(-1)),"rejected");
         // Photoshop import is dispatched outside decodeImportImage, so its hostile containers get their own cases.
