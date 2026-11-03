@@ -58,12 +58,12 @@
   "binaries": [
     {
       "bytes": 1477120,
-      "sha256": "bdcb6b65f2749a165dad3b41c581f717c6d9bc287bfd51bdcfb1ea403f1fa418",
+      "sha256": "af02efabdcbbfd235b3e9d9efd1a351fa6fe24a219ed262adb73872b99b4bab7",
       "path": "install/bin/heif.dll"
     },
     {
       "bytes": 377344,
-      "sha256": "857362c0478e8517001fa7624f741129f386c3a0c415e692090898dec22e2faa",
+      "sha256": "1557d1100fb5351281d1eaf3e4d55186a0e0fbae8958afc684d205ec674c1326",
       "path": "install/bin/libde265.dll"
     },
     {
